@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Employee Management System</title>
+<style>
+:root{--teal:#0f766e;--teal-d:#0b5c56;--ink:#1c2528;--mute:#64748b;--line:#dde3e6;--bg:#f3f6f6;--card:#fff;--danger:#b42318}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);line-height:1.5}
+header{background:var(--teal);color:#fff;padding:16px 20px}
+header h1{margin:0;font-size:1.25rem}
+main{max-width:980px;margin:0 auto;padding:18px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.stat b{display:block;font-size:1.5rem}
+.stat span{color:var(--mute);font-size:.85rem}
+.bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.bar input,.bar select{flex:1;min-width:150px}
+input,select{padding:10px;border:1px solid var(--line);border-radius:6px;font:inherit;background:#fff;width:100%}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--teal);outline-offset:1px}
+label{display:block;font-size:.85rem;color:var(--mute);margin-bottom:4px}
+.btn{background:var(--teal);color:#fff;border:0;border-radius:6px;padding:10px 16px;font:inherit;font-weight:600;cursor:pointer}
+.btn:hover{background:var(--teal-d)}
+.btn.ghost{background:#fff;color:var(--teal);border:1px solid var(--teal)}
+.btn.danger{background:#fff;color:var(--danger);border:1px solid var(--danger)}
+.btn.sm{padding:5px 10px;font-size:.85rem}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px}
+.form .full{grid-column:1/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.err{color:var(--danger);font-size:.88rem}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:640px}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line)}
+th{font-size:.85rem;color:var(--mute);cursor:pointer;user-select:none;white-space:nowrap}
+td.act{white-space:nowrap;display:flex;gap:6px}
+.hide{display:none}
+.empty{text-align:center;color:var(--mute);padding:26px}
+</style>
+</head>
+<body>
+<header><h1>Employee Management System</h1></header>
+<main>
+  <div class="stats" id="stats"></div>
+
+  <div class="bar">
+    <input id="q" type="search" placeholder="Search by name or email" aria-label="Search employees">
+    <select id="dept" aria-label="Filter by department"></select>
+    <button class="btn" id="addBtn">Add employee</button>
+  </div>
+
+  <form class="card form hide" id="form" autocomplete="off">
+    <input type="hidden" id="eid">
+    <div><label for="name">Full name</label><input id="name" maxlength="60"></div>
+    <div><label for="email">Email</label><input id="email" type="email"></div>
+    <div><label for="department">Department</label><select id="department"></select></div>
+    <div><label for="designation">Designation</label><input id="designation" maxlength="60"></div>
+    <div><label for="salary">Monthly salary (&#8377;)</label><input id="salary" type="number" min="0" step="500"></div>
+    <div><label for="joined">Joining date</label><input id="joined" type="date"></div>
+    <div class="full"><button class="btn" type="submit" id="saveBtn">Save employee</button>
+      <button class="btn ghost" type="button" id="cancelBtn">Cancel</button><span class="err" id="formErr"></span></div>
+  </form>
+
+  <div class="card tablewrap"><table>
+    <thead><tr>
+      <th data-sort="name">Name</th><th data-sort="department">Department</th><th data-sort="designation">Designation</th>
+      <th data-sort="salary">Salary</th><th data-sort="joined">Joined</th><th>Actions</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table></div>
+</main>
+
+<script>
+/* =====================================================================
+   MVC in one file
+   Model      -> data + business rules (Java model + service classes)
+   Storage    -> persistence layer; in the Java version this is the
+                 JDBC EmployeeDAO (INSERT / SELECT / UPDATE / DELETE)
+   View       -> draws HTML from data only (JSP)
+   Controller -> handles user actions (Servlet)
+   ===================================================================== */
+
+const DEPARTMENTS = ["Engineering","Human Resources","Finance","Marketing","Sales","Operations"];
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money = n => "\u20B9" + Number(n).toLocaleString("en-IN");
+
+/* ---------- Storage (DAO) ---------- */
+const Storage = {
+  key: "ems.employees.v1",
+  findAll() {
+    try {
+      const raw = localStorage.getItem(this.key);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return [
+      {id:1, name:"Asha Rao",     email:"asha@example.com",  department:"Engineering",    designation:"Backend Developer", salary:82000, joined:"2022-03-14"},
+      {id:2, name:"Ravi Kumar",   email:"ravi@example.com",  department:"Finance",        designation:"Accountant",        salary:56000, joined:"2021-07-01"},
+      {id:3, name:"Meera Iyer",   email:"meera@example.com", department:"Human Resources",designation:"HR Manager",        salary:68000, joined:"2020-11-23"}
+    ];
+  },
+  saveAll(list) { try { localStorage.setItem(this.key, JSON.stringify(list)); } catch (e) {} },
+  insert(e) { const l = this.findAll(); e.id = l.reduce((m, x) => Math.max(m, x.id), 0) + 1; l.push(e); this.saveAll(l); },
+  update(e) { const l = this.findAll().map(x => x.id === e.id ? e : x); this.saveAll(l); },
+  remove(id) { this.saveAll(this.findAll().filter(x => x.id !== id)); }
+};
+
+/* ---------- Model ---------- */
+const Model = {
+  validate(e, editingId) {
+    if (e.name.length < 2) return "Enter the employee's full name.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.email)) return "Enter a valid email address.";
+    const dup = Storage.findAll().some(x => x.email.toLowerCase() === e.email.toLowerCase() && x.id !== editingId);
+    if (dup) return "Another employee already uses this email.";
+    if (!DEPARTMENTS.includes(e.department)) return "Choose a department.";
+    if (e.designation.length < 2) return "Enter the designation.";
+    if (!(e.salary > 0)) return "Enter a salary greater than 0.";
+    if (!e.joined) return "Choose the joining date.";
+    return "";
+  },
+  query({q, dept, sortBy, dir}) {
+    let list = Storage.findAll();
+    const s = q.trim().toLowerCase();
+    if (s) list = list.filter(e => e.name.toLowerCase().includes(s) || e.email.toLowerCase().includes(s));
+    if (dept) list = list.filter(e => e.department === dept);
+    list.sort((a, b) => {
+      const x = a[sortBy], y = b[sortBy];
+      const r = typeof x === "number" ? x - y : String(x).localeCompare(String(y));
+      return dir * r;
+    });
+    return list;
+  },
+  stats() {
+    const l = Storage.findAll();
+    const total = l.reduce((s, e) => s + e.salary, 0);
+    return { count: l.length, depts: new Set(l.map(e => e.department)).size,
+             avg: l.length ? Math.round(total / l.length) : 0, payroll: total };
+  }
+};
+
+/* ---------- View ---------- */
+const View = {
+  init() {
+    $("dept").innerHTML = `<option value="">All departments</option>` + DEPARTMENTS.map(d => `<option>${d}</option>`).join("");
+    $("department").innerHTML = DEPARTMENTS.map(d => `<option>${d}</option>`).join("");
+  },
+  stats(s) {
+    $("stats").innerHTML = [["Employees", s.count], ["Departments", s.depts], ["Average salary", money(s.avg)], ["Monthly payroll", money(s.payroll)]]
+      .map(([k, v]) => `<div class="card stat"><b>${v}</b><span>${k}</span></div>`).join("");
+  },
+  rows(list) {
+    $("rows").innerHTML = list.length ? list.map(e => `
+      <tr><td><strong>${esc(e.name)}</strong><div style="color:var(--mute);font-size:.85rem">${esc(e.email)}</div></td>
+        <td>${esc(e.department)}</td><td>${esc(e.designation)}</td><td>${money(e.salary)}</td><td>${esc(e.joined)}</td>
+        <td class="act"><button class="btn ghost sm" data-edit="${e.id}">Edit</button>
+        <button class="btn danger sm" data-del="${e.id}">Delete</button></td></tr>`).join("")
+      : `<tr><td colspan="6" class="empty">No employees found. Add one or clear the search.</td></tr>`;
+  },
+  form(e) {
+    $("form").classList.remove("hide");
+    $("eid").value = e ? e.id : "";
+    $("name").value = e ? e.name : ""; $("email").value = e ? e.email : "";
+    $("department").value = e ? e.department : DEPARTMENTS[0];
+    $("designation").value = e ? e.designation : ""; $("salary").value = e ? e.salary : "";
+    $("joined").value = e ? e.joined : new Date().toISOString().slice(0, 10);
+    $("formErr").textContent = "";
+    $("saveBtn").textContent = e ? "Update employee" : "Save employee";
+    $("name").focus();
+  },
+  hideForm() { $("form").classList.add("hide"); },
+  error(msg) { $("formErr").textContent = msg; }
+};
+
+/* ---------- Controller ---------- */
+const ui = { q: "", dept: "", sortBy: "name", dir: 1 };
+
+const Controller = {
+  init() {
+    View.init();
+    $("q").oninput = e => { ui.q = e.target.value; this.refresh(); };
+    $("dept").onchange = e => { ui.dept = e.target.value; this.refresh(); };
+    $("addBtn").onclick = () => View.form(null);
+    $("cancelBtn").onclick = () => View.hideForm();
+    $("form").onsubmit = e => { e.preventDefault(); this.save(); };
+    document.querySelector("thead").onclick = e => {
+      const th = e.target.closest("[data-sort]"); if (!th) return;
+      ui.dir = ui.sortBy === th.dataset.sort ? -ui.dir : 1; ui.sortBy = th.dataset.sort; this.refresh();
+    };
+    $("rows").onclick = e => {
+      const ed = e.target.closest("[data-edit]"), del = e.target.closest("[data-del]");
+      if (ed) View.form(Storage.findAll().find(x => x.id === +ed.dataset.edit));
+      if (del && confirm("Delete this employee? This cannot be undone.")) { Storage.remove(+del.dataset.del); this.refresh(); }
+    };
+    this.refresh();
+  },
+  save() {
+    const id = $("eid").value ? +$("eid").value : null;
+    const emp = { name: $("name").value.trim(), email: $("email").value.trim(), department: $("department").value,
+                  designation: $("designation").value.trim(), salary: Number($("salary").value), joined: $("joined").value };
+    const msg = Model.validate(emp, id);
+    if (msg) return View.error(msg);
+    if (id) { emp.id = id; Storage.update(emp); } else Storage.insert(emp);
+    View.hideForm(); this.refresh();
+  },
+  refresh() { View.stats(Model.stats()); View.rows(Model.query(ui)); }
+};
+
+Controller.init();
+</script>
+</body>
+</html>
